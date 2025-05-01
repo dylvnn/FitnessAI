@@ -512,77 +512,177 @@ class MealPlanCSP:
 
 
 class WorkoutPlanGenerator:
-    """Generate workout plans using optimal split approaches"""
+    """Generate workout plans using A* search algorithm with split-specific guidance"""
 
     def __init__(self, exercises, user_profile):
         self.exercises = exercises
         self.user = user_profile
 
-    def generate_workout_plan(self, days_per_week=6):
-        """Generate a weekly workout plan using a structured approach"""
-        workout_plan = []
+    def generate_workout_plan(self, days_per_week=4, split_type=None):
+        """Generate a weekly workout plan using A* search with split guidance"""
 
-        # Use an appropriate split based on days per week
-        if days_per_week == 6:
-            # PPL (Push/Pull/Legs) split twice per week
-            split = [
-                ("Push Day 1", self._create_push_workout(intensity="heavy")),
-                ("Pull Day 1", self._create_pull_workout(intensity="heavy")),
-                ("Legs Day 1", self._create_legs_workout(intensity="heavy")),
-                ("Push Day 2", self._create_push_workout(intensity="moderate")),
-                ("Pull Day 2", self._create_pull_workout(intensity="moderate")),
-                ("Legs Day 2", self._create_legs_workout(intensity="moderate"))
-            ]
-        elif days_per_week == 5:
-            # Upper/Lower + PPL hybrid
-            split = [
-                ("Upper Power", self._create_upper_workout(focus="power")),
-                ("Lower Power", self._create_legs_workout(intensity="heavy")),
-                ("Push Hypertrophy", self._create_push_workout(intensity="moderate")),
-                ("Pull Hypertrophy", self._create_pull_workout(intensity="moderate")),
-                ("Lower Hypertrophy", self._create_legs_workout(intensity="moderate"))
-            ]
-        elif days_per_week == 4:
-            # Upper/Lower split twice per week
-            split = [
-                ("Upper Day 1", self._create_upper_workout(focus="strength")),
-                ("Lower Day 1", self._create_legs_workout(intensity="heavy")),
-                ("Upper Day 2", self._create_upper_workout(focus="hypertrophy")),
-                ("Lower Day 2", self._create_legs_workout(intensity="moderate"))
-            ]
-        elif days_per_week == 3:
-            # Full body 3 days per week
-            split = [
-                ("Full Body A", self._create_full_body_workout(focus="push")),
-                ("Full Body B", self._create_full_body_workout(focus="pull")),
-                ("Full Body C", self._create_full_body_workout(focus="legs"))
-            ]
+        # Validate days_per_week is within reasonable bounds
+        days_per_week = max(2, min(7, days_per_week))  # Ensure between 2-7 days
+
+        # If split_type is not explicitly provided, determine based on days_per_week
+        if not split_type:
+            split_type = self._determine_split_type(days_per_week)
+
+        # Define muscle groups and their target weekly volume
+        muscle_groups = ['chest', 'back', 'legs', 'shoulders', 'arms', 'core']
+
+        # Target sets per muscle group (can be adjusted based on goal)
+        if "muscle gain" in self.user.goals:
+            target_sets_per_group = 14  # Higher volume for hypertrophy
+        elif "athletic" in self.user.goals:
+            target_sets_per_group = 12  # Balanced for athletic performance
+        elif "health" in self.user.goals:
+            target_sets_per_group = 10  # Moderate for general health
         else:
-            # For any other number of days, create custom split
-            muscle_groups = ['chest', 'back', 'legs', 'shoulders', 'arms', 'core']
-            split = []
+            target_sets_per_group = 12  # Default
 
-            for i in range(days_per_week):
-                if i % 6 == 0:
-                    split.append((f"Chest Focus Day", self._create_chest_focused_workout()))
-                elif i % 6 == 1:
-                    split.append((f"Back Focus Day", self._create_back_focused_workout()))
-                elif i % 6 == 2:
-                    split.append((f"Legs Focus Day", self._create_legs_workout(intensity="heavy")))
-                elif i % 6 == 3:
-                    split.append((f"Shoulders Focus Day", self._create_shoulder_focused_workout()))
-                elif i % 6 == 4:
-                    split.append((f"Arms Focus Day", self._create_arms_focused_workout()))
-                else:
-                    split.append((f"Core & Cardio Day", self._create_core_focused_workout()))
+        # For fewer training days, we need to adjust the target
+        # to be achievable within the given days_per_week
+        max_sets_per_day = 24  # Reasonable upper limit of sets per workout
+        max_possible_sets = days_per_week * max_sets_per_day / len(muscle_groups)
+        if target_sets_per_group > max_possible_sets:
+            target_sets_per_group = int(max_possible_sets)
 
-        # Take only as many days as requested
-        workout_plan = split[:days_per_week]
-        return workout_plan
+        # Initialize A* search
+        initial_state = {muscle: 0 for muscle in muscle_groups}
+        frontier = [(initial_state, [], 0)]  # (state, plan, cost)
+        explored = set()  # Track explored states
 
-    def _create_push_workout(self, intensity="moderate"):
-        """Create a push workout (chest, shoulders, triceps)"""
+        # A* search
+        iterations = 0
+        max_iterations = 1000  # Prevent infinite loops
+
+        while frontier and iterations < max_iterations:
+            iterations += 1
+
+            # If frontier is empty, break
+            if not frontier:
+                break
+
+            # Sort frontier by f(n) = g(n) + h(n)
+            frontier.sort(key=lambda x: x[2] + self._heuristic(x[0], target_sets_per_group))
+            current_state, current_plan, current_cost = frontier.pop(0)
+
+            # Convert state to hashable form for tracking explored states
+            state_tuple = tuple(sorted(current_state.items()))
+            if state_tuple in explored:
+                continue
+
+            explored.add(state_tuple)
+
+            # Check if we've reached goal state (all muscle groups have target sets)
+            if all(sets >= target_sets_per_group for muscle, sets in current_state.items()):
+                # We found our solution
+                return current_plan
+
+            # If we've already planned enough days, continue to next state
+            if len(current_plan) >= days_per_week:
+                continue
+
+            # Generate possible next workouts based on the split type and current day
+            next_workouts = self._generate_workout_successors(
+                current_state,
+                target_sets_per_group,
+                len(current_plan),
+                split_type,
+                days_per_week
+            )
+
+            # If no successors were generated, continue to next state
+            if not next_workouts:
+                continue
+
+            for workout_name, workout, new_state in next_workouts:
+                # Calculate new cost (workout time is our cost metric)
+                new_cost = current_cost + self._calculate_workout_time(workout)
+
+                # Create new state tuple for checking if we've seen this state
+                new_state_tuple = tuple(sorted(new_state.items()))
+
+                # Only add to frontier if we haven't exceeded the days or
+                # if it's a better plan than what we've seen
+                if new_state_tuple not in explored:
+                    new_plan = current_plan + [(workout_name, workout)]
+                    frontier.append((new_state, new_plan, new_cost))
+
+            # Limit frontier size for performance
+            if len(frontier) > 100:
+                frontier = frontier[:100]
+
+        # If no solution found or max iterations reached, fall back to rule-based approach
+        return self._fallback_workout_plan(days_per_week, split_type)
+
+    def _determine_split_type(self, days_per_week):
+        """Determine the recommended split type based on number of days"""
+        if days_per_week == 2:
+            return "full_body"
+        elif days_per_week == 3:
+            return "ppl"  # Push/Pull/Legs
+        elif days_per_week == 4:
+            return "upper_lower"  # Upper/Lower Split
+        elif days_per_week == 5:
+            return "ppl_ul"  # PPL + Upper/Lower
+        elif days_per_week == 6:
+            return "ppl_2x"  # PPL twice per week
+        else:
+            return "full_body"
+
+    def _heuristic(self, state, target):
+        """
+        Heuristic function for A* search:
+        Estimates cost to goal based on remaining sets needed and training efficiency
+        """
+        # Calculate total sets needed to reach target
+        sets_remaining = sum(max(0, target - sets) for muscle, sets in state.items())
+
+        # Estimate workouts needed - assume average of 18 sets per workout
+        workouts_needed = max(1, sets_remaining / 18)
+
+        # Estimate time per workout (60 min average)
+        estimated_time = workouts_needed * 60
+
+        return estimated_time
+
+    def _calculate_workout_time(self, workout):
+        """Estimate total workout time in minutes (our cost function)"""
+        # Calculate base time: 3 minutes per set (including rest) plus 5 min warmup
+        total_sets = len(workout) * 3  # Each exercise has 3 sets
+        base_time = total_sets * 3 + 5
+
+        # Add complexity factor: more exercises = more setup time
+        complexity_time = len(workout) * 1.5
+
+        return base_time + complexity_time
+
+    def _filter_exercises(self, muscle_group, exercise_type, additional_filter=None):
+        filtered = []
+
+        for exercise_name, properties in self.exercises.items():
+            # Check muscle group
+            if properties['muscle_group'] != muscle_group:
+                continue
+
+            # Check exercise type if specified
+            if exercise_type and ('category' not in properties or properties['category'] != exercise_type):
+                continue
+
+            # Apply additional filter if provided
+            if additional_filter and not additional_filter(exercise_name):
+                continue
+
+            filtered.append(exercise_name)
+
+        return filtered
+
+    def _create_push_workout(self, current_state, intensity="moderate"):
+        """Create a push workout (chest, shoulders, triceps) and update state"""
         workout = []
+        new_state = current_state.copy()
 
         # Select compound chest exercises
         chest_compounds = self._filter_exercises("chest", "compound")
@@ -605,30 +705,59 @@ class WorkoutPlanGenerator:
         # Build the workout
         if intensity == "heavy":
             # Add 2 compound chest exercises
-            workout.extend(self._pick_exercises(chest_compounds, 2, heavy_rep_range))
+            selected_exercises = self._pick_exercises(chest_compounds, 2, heavy_rep_range)
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "chest", len(selected_exercises) * 3)  # 3 sets per exercise
+
             # Add 1 compound shoulder exercise
-            workout.extend(self._pick_exercises(shoulder_compounds, 1, heavy_rep_range))
+            selected_exercises = self._pick_exercises(shoulder_compounds, 1, heavy_rep_range)
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "shoulders", len(selected_exercises) * 3)
+
             # Add 1 isolation shoulder exercise
-            workout.extend(self._pick_exercises(shoulder_isolations, 1, moderate_rep_range))
-            # Add 2 tricep exercises (mix of compound and isolation)
-            workout.extend(self._pick_exercises(tricep_compounds, 1, moderate_rep_range))
-            workout.extend(self._pick_exercises(tricep_isolations, 1, moderate_rep_range))
+            selected_exercises = self._pick_exercises(shoulder_isolations, 1, moderate_rep_range)
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "shoulders", len(selected_exercises) * 3)
+
+            # Add 2 tricep exercises
+            selected_exercises = self._pick_exercises(tricep_compounds, 1, moderate_rep_range)
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "arms", len(selected_exercises) * 3)
+
+            selected_exercises = self._pick_exercises(tricep_isolations, 1, moderate_rep_range)
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "arms", len(selected_exercises) * 3)
         else:
             # Add 1 compound chest exercise
-            workout.extend(self._pick_exercises(chest_compounds, 1, moderate_rep_range))
+            selected_exercises = self._pick_exercises(chest_compounds, 1, moderate_rep_range)
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "chest", len(selected_exercises) * 3)
+
             # Add 1-2 isolation chest exercises
-            workout.extend(self._pick_exercises(chest_isolations, 2, moderate_rep_range))
-            # Add 1-2 shoulder exercises (prioritize isolation)
-            workout.extend(self._pick_exercises(shoulder_compounds, 1, moderate_rep_range))
-            workout.extend(self._pick_exercises(shoulder_isolations, 1, light_rep_range))
+            selected_exercises = self._pick_exercises(chest_isolations, 2, moderate_rep_range)
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "chest", len(selected_exercises) * 3)
+
+            # Add 1-2 shoulder exercises
+            selected_exercises = self._pick_exercises(shoulder_compounds, 1, moderate_rep_range)
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "shoulders", len(selected_exercises) * 3)
+
+            selected_exercises = self._pick_exercises(shoulder_isolations, 1, light_rep_range)
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "shoulders", len(selected_exercises) * 3)
+
             # Add 2 tricep isolation exercises
-            workout.extend(self._pick_exercises(tricep_isolations, 2, light_rep_range))
+            selected_exercises = self._pick_exercises(tricep_isolations, 2, light_rep_range)
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "arms", len(selected_exercises) * 3)
 
-        return workout
+        return workout, new_state
 
-    def _create_pull_workout(self, intensity="moderate"):
-        """Create a pull workout (back, biceps, rear delts)"""
+    def _create_pull_workout(self, current_state, intensity="moderate"):
+        """Create a pull workout (back, biceps) and update state"""
         workout = []
+        new_state = current_state.copy()
 
         # Select back exercises
         back_compounds = self._filter_exercises("back", "compound")
@@ -649,28 +778,51 @@ class WorkoutPlanGenerator:
         # Build the workout
         if intensity == "heavy":
             # Add 2-3 compound back exercises
-            workout.extend(self._pick_exercises(back_compounds, 3, heavy_rep_range))
+            selected_exercises = self._pick_exercises(back_compounds, 3, heavy_rep_range)
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "back", len(selected_exercises) * 3)
+
             # Add 1 back isolation
-            workout.extend(self._pick_exercises(back_isolations, 1, moderate_rep_range))
+            selected_exercises = self._pick_exercises(back_isolations, 1, moderate_rep_range)
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "back", len(selected_exercises) * 3)
+
             # Add 2 bicep exercises
-            workout.extend(self._pick_exercises(bicep_isolations, 2, moderate_rep_range))
+            selected_exercises = self._pick_exercises(bicep_isolations, 2, moderate_rep_range)
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "arms", len(selected_exercises) * 3)
+
             # Add 1 rear delt exercise
-            workout.extend(self._pick_exercises(rear_delt_exercises, 1, moderate_rep_range))
+            selected_exercises = self._pick_exercises(rear_delt_exercises, 1, moderate_rep_range)
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "shoulders", len(selected_exercises) * 3)
         else:
             # Add 2 compound back exercises
-            workout.extend(self._pick_exercises(back_compounds, 2, moderate_rep_range))
+            selected_exercises = self._pick_exercises(back_compounds, 2, moderate_rep_range)
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "back", len(selected_exercises) * 3)
+
             # Add 1-2 back isolation
-            workout.extend(self._pick_exercises(back_isolations, 1, moderate_rep_range))
+            selected_exercises = self._pick_exercises(back_isolations, 1, moderate_rep_range)
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "back", len(selected_exercises) * 3)
+
             # Add 2-3 bicep exercises
-            workout.extend(self._pick_exercises(bicep_isolations, 3, light_rep_range))
+            selected_exercises = self._pick_exercises(bicep_isolations, 3, light_rep_range)
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "arms", len(selected_exercises) * 3)
+
             # Add 1 rear delt exercise
-            workout.extend(self._pick_exercises(rear_delt_exercises, 1, light_rep_range))
+            selected_exercises = self._pick_exercises(rear_delt_exercises, 1, light_rep_range)
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "shoulders", len(selected_exercises) * 3)
 
-        return workout
+        return workout, new_state
 
-    def _create_legs_workout(self, intensity="moderate"):
-        """Create a legs workout (quads, hamstrings, calves)"""
+    def _create_legs_workout(self, current_state, intensity="moderate"):
+        """Create a legs workout and update state"""
         workout = []
+        new_state = current_state.copy()
 
         # Filter exercises
         quad_compounds = self._filter_exercises("legs", "compound",
@@ -689,32 +841,61 @@ class WorkoutPlanGenerator:
         # Build the workout
         if intensity == "heavy":
             # Add 2 quad compound exercises
-            workout.extend(self._pick_exercises(quad_compounds, 2, heavy_rep_range))
+            selected_exercises = self._pick_exercises(quad_compounds, 2, heavy_rep_range)
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "legs", len(selected_exercises) * 3)
+
             # Add 1 ham compound exercise
-            workout.extend(self._pick_exercises(ham_compounds, 1, heavy_rep_range))
+            selected_exercises = self._pick_exercises(ham_compounds, 1, heavy_rep_range)
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "legs", len(selected_exercises) * 3)
+
             # Add 1 leg isolation
-            workout.extend(self._pick_exercises(leg_isolations, 1, moderate_rep_range))
+            selected_exercises = self._pick_exercises(leg_isolations, 1, moderate_rep_range)
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "legs", len(selected_exercises) * 3)
+
             # Add 1 calf exercise
-            workout.extend(self._pick_exercises(calf_exercises, 1, moderate_rep_range))
+            selected_exercises = self._pick_exercises(calf_exercises, 1, moderate_rep_range)
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "legs", len(selected_exercises) * 3)
+
             # Add 1 core exercise
-            workout.extend(self._pick_exercises(core_exercises, 1, moderate_rep_range))
+            selected_exercises = self._pick_exercises(core_exercises, 1, moderate_rep_range)
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "core", len(selected_exercises) * 3)
         else:
             # Add 1 quad compound exercise
-            workout.extend(self._pick_exercises(quad_compounds, 1, moderate_rep_range))
+            selected_exercises = self._pick_exercises(quad_compounds, 1, moderate_rep_range)
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "legs", len(selected_exercises) * 3)
+
             # Add 1 ham compound exercise
-            workout.extend(self._pick_exercises(ham_compounds, 1, moderate_rep_range))
+            selected_exercises = self._pick_exercises(ham_compounds, 1, moderate_rep_range)
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "legs", len(selected_exercises) * 3)
+
             # Add 2 leg isolations
-            workout.extend(self._pick_exercises(leg_isolations, 2, light_rep_range))
+            selected_exercises = self._pick_exercises(leg_isolations, 2, light_rep_range)
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "legs", len(selected_exercises) * 3)
+
             # Add 2 calf exercises
-            workout.extend(self._pick_exercises(calf_exercises, 2, light_rep_range))
+            selected_exercises = self._pick_exercises(calf_exercises, 2, light_rep_range)
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "legs", len(selected_exercises) * 3)
+
             # Add 1 core exercise
-            workout.extend(self._pick_exercises(core_exercises, 1, light_rep_range))
+            selected_exercises = self._pick_exercises(core_exercises, 1, light_rep_range)
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "core", len(selected_exercises) * 3)
 
-        return workout
+        return workout, new_state
 
-    def _create_upper_workout(self, focus="strength"):
-        """Create an upper body workout (chest, back, shoulders, arms)"""
+    def _create_upper_workout(self, current_state, focus="strength"):
+        """Create an upper body workout and update state"""
         workout = []
+        new_state = current_state.copy()
 
         # Filter exercises
         chest_compounds = self._filter_exercises("chest", "compound")
@@ -739,218 +920,421 @@ class WorkoutPlanGenerator:
             arm_rep_range = "12-15"
 
         # Add 1-2 chest exercises
-        workout.extend(self._pick_exercises(chest_compounds, 1, chest_rep_range))
+        selected_exercises = self._pick_exercises(chest_compounds, 1, chest_rep_range)
+        workout.extend(selected_exercises)
+        self._update_state(new_state, "chest", len(selected_exercises) * 3)
+
         if focus != "power":
-            workout.extend(self._pick_exercises(chest_isolations, 1, chest_rep_range))
+            selected_exercises = self._pick_exercises(chest_isolations, 1, chest_rep_range)
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "chest", len(selected_exercises) * 3)
 
         # Add 1-2 back exercises
-        workout.extend(self._pick_exercises(back_compounds, 1, back_rep_range))
+        selected_exercises = self._pick_exercises(back_compounds, 1, back_rep_range)
+        workout.extend(selected_exercises)
+        self._update_state(new_state, "back", len(selected_exercises) * 3)
+
         if focus != "power":
-            workout.extend(self._pick_exercises(back_isolations, 1, back_rep_range))
+            selected_exercises = self._pick_exercises(back_isolations, 1, back_rep_range)
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "back", len(selected_exercises) * 3)
 
         # Add 1-2 shoulder exercises
-        workout.extend(self._pick_exercises(shoulder_compounds, 1, shoulder_rep_range))
+        selected_exercises = self._pick_exercises(shoulder_compounds, 1, shoulder_rep_range)
+        workout.extend(selected_exercises)
+        self._update_state(new_state, "shoulders", len(selected_exercises) * 3)
+
         if focus != "power":
-            workout.extend(self._pick_exercises(shoulder_isolations, 1, shoulder_rep_range))
+            selected_exercises = self._pick_exercises(shoulder_isolations, 1, shoulder_rep_range)
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "shoulders", len(selected_exercises) * 3)
 
         # Add 1 exercise each for biceps and triceps
-        workout.extend(self._pick_exercises(bicep_exercises, 1, arm_rep_range))
-        workout.extend(self._pick_exercises(tricep_exercises, 1, arm_rep_range))
+        selected_exercises = self._pick_exercises(bicep_exercises, 1, arm_rep_range)
+        workout.extend(selected_exercises)
+        self._update_state(new_state, "arms", len(selected_exercises) * 3)
 
-        return workout
+        selected_exercises = self._pick_exercises(tricep_exercises, 1, arm_rep_range)
+        workout.extend(selected_exercises)
+        self._update_state(new_state, "arms", len(selected_exercises) * 3)
 
-    def _create_full_body_workout(self, focus="balanced"):
-        """Create a full body workout with emphasis on a specific area"""
+        return workout, new_state
+
+    def _create_full_body_workout(self, current_state, focus="balanced"):
+        """Create a full body workout and update state"""
         workout = []
+        new_state = current_state.copy()
 
         # Determine emphasis based on focus
         if focus == "push":
             # Emphasize chest and shoulders
-            workout.extend(self._pick_exercises(self._filter_exercises("chest", "compound"), 2, "6-10"))
-            workout.extend(self._pick_exercises(self._filter_exercises("shoulders", "compound"), 1, "8-12"))
+            selected_exercises = self._pick_exercises(self._filter_exercises("chest", "compound"), 2, "6-10")
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "chest", len(selected_exercises) * 3)
+
+            selected_exercises = self._pick_exercises(self._filter_exercises("shoulders", "compound"), 1, "8-12")
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "shoulders", len(selected_exercises) * 3)
+
             # Include less emphasis on pull and legs
-            workout.extend(self._pick_exercises(self._filter_exercises("back", "compound"), 1, "8-12"))
-            workout.extend(self._pick_exercises(self._filter_exercises("legs", "compound"), 1, "8-12"))
+            selected_exercises = self._pick_exercises(self._filter_exercises("back", "compound"), 1, "8-12")
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "back", len(selected_exercises) * 3)
+
+            selected_exercises = self._pick_exercises(self._filter_exercises("legs", "compound"), 1, "8-12")
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "legs", len(selected_exercises) * 3)
+
             # Add arm and core work
-            workout.extend(
-                self._pick_exercises(self._filter_exercises("arms", "isolation", lambda x: "Tricep" in x), 1, "10-15"))
-            workout.extend(self._pick_exercises(self._filter_exercises("core", None), 1, "12-15"))
+            selected_exercises = self._pick_exercises(
+                self._filter_exercises("arms", "isolation", lambda x: "Tricep" in x), 1, "10-15")
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "arms", len(selected_exercises) * 3)
+
+            selected_exercises = self._pick_exercises(self._filter_exercises("core", None), 1, "12-15")
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "core", len(selected_exercises) * 3)
+
         elif focus == "pull":
             # Emphasize back and biceps
-            workout.extend(self._pick_exercises(self._filter_exercises("back", "compound"), 2, "6-10"))
-            workout.extend(
-                self._pick_exercises(self._filter_exercises("arms", "isolation", lambda x: "Curl" in x), 1, "8-12"))
+            selected_exercises = self._pick_exercises(self._filter_exercises("back", "compound"), 2, "6-10")
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "back", len(selected_exercises) * 3)
+
+            selected_exercises = self._pick_exercises(
+                self._filter_exercises("arms", "isolation", lambda x: "Curl" in x), 1, "8-12")
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "arms", len(selected_exercises) * 3)
+
             # Include less emphasis on push and legs
-            workout.extend(self._pick_exercises(self._filter_exercises("chest", "compound"), 1, "8-12"))
-            workout.extend(self._pick_exercises(self._filter_exercises("legs", "compound"), 1, "8-12"))
+            selected_exercises = self._pick_exercises(self._filter_exercises("chest", "compound"), 1, "8-12")
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "chest", len(selected_exercises) * 3)
+
+            selected_exercises = self._pick_exercises(self._filter_exercises("legs", "compound"), 1, "8-12")
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "legs", len(selected_exercises) * 3)
+
             # Add shoulder and core work
-            workout.extend(self._pick_exercises(self._filter_exercises("shoulders", "isolation"), 1, "10-15"))
-            workout.extend(self._pick_exercises(self._filter_exercises("core", None), 1, "12-15"))
+            selected_exercises = self._pick_exercises(self._filter_exercises("shoulders", "isolation"), 1, "10-15")
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "shoulders", len(selected_exercises) * 3)
+
+            selected_exercises = self._pick_exercises(self._filter_exercises("core", None), 1, "12-15")
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "core", len(selected_exercises) * 3)
+
         elif focus == "legs":
             # Emphasize legs
-            workout.extend(self._pick_exercises(self._filter_exercises("legs", "compound"), 3, "6-10"))
+            selected_exercises = self._pick_exercises(self._filter_exercises("legs", "compound"), 3, "6-10")
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "legs", len(selected_exercises) * 3)
+
             # Include minimal upper body
-            workout.extend(self._pick_exercises(self._filter_exercises("chest", "compound"), 1, "8-12"))
-            workout.extend(self._pick_exercises(self._filter_exercises("back", "compound"), 1, "8-12"))
+            selected_exercises = self._pick_exercises(self._filter_exercises("chest", "compound"), 1, "8-12")
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "chest", len(selected_exercises) * 3)
+
+            selected_exercises = self._pick_exercises(self._filter_exercises("back", "compound"), 1, "8-12")
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "back", len(selected_exercises) * 3)
+
             # Add core work
-            workout.extend(self._pick_exercises(self._filter_exercises("core", None), 2, "12-15"))
+            selected_exercises = self._pick_exercises(self._filter_exercises("core", None), 2, "12-15")
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "core", len(selected_exercises) * 3)
+
         else:
             # Balanced approach
-            workout.extend(self._pick_exercises(self._filter_exercises("chest", "compound"), 1, "8-12"))
-            workout.extend(self._pick_exercises(self._filter_exercises("back", "compound"), 1, "8-12"))
-            workout.extend(self._pick_exercises(self._filter_exercises("legs", "compound"), 2, "8-12"))
-            workout.extend(self._pick_exercises(self._filter_exercises("shoulders", "compound"), 1, "8-12"))
-            workout.extend(self._pick_exercises(self._filter_exercises("arms", "isolation"), 1, "10-15"))
-            workout.extend(self._pick_exercises(self._filter_exercises("core", None), 1, "12-15"))
+            selected_exercises = self._pick_exercises(self._filter_exercises("chest", "compound"), 1, "8-12")
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "chest", len(selected_exercises) * 3)
 
-        return workout
+            selected_exercises = self._pick_exercises(self._filter_exercises("back", "compound"), 1, "8-12")
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "back", len(selected_exercises) * 3)
 
-    def _create_chest_focused_workout(self):
-        """Create a chest-focused workout"""
-        workout = []
+            selected_exercises = self._pick_exercises(self._filter_exercises("legs", "compound"), 2, "8-12")
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "legs", len(selected_exercises) * 3)
 
-        # Add 2-3 compound chest exercises
-        workout.extend(self._pick_exercises(self._filter_exercises("chest", "compound"), 3, "6-12"))
+            selected_exercises = self._pick_exercises(self._filter_exercises("shoulders", "compound"), 1, "8-12")
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "shoulders", len(selected_exercises) * 3)
 
-        # Add 2 isolation chest exercises
-        workout.extend(self._pick_exercises(self._filter_exercises("chest", "isolation"), 2, "10-15"))
+            selected_exercises = self._pick_exercises(self._filter_exercises("arms", "isolation"), 1, "10-15")
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "arms", len(selected_exercises) * 3)
 
-        # Add 1 front delt exercise
-        workout.extend(
-            self._pick_exercises(self._filter_exercises("shoulders", "isolation", lambda x: "Front" in x), 1, "10-15"))
+            selected_exercises = self._pick_exercises(self._filter_exercises("core", None), 1, "12-15")
+            workout.extend(selected_exercises)
+            self._update_state(new_state, "core", len(selected_exercises) * 3)
 
-        # Add 1 tricep exercise
-        workout.extend(
-            self._pick_exercises(self._filter_exercises("arms", "isolation", lambda x: "Tricep" in x), 1, "10-15"))
+        return workout, new_state
 
-        return workout
+    def _generate_workout_successors(self, current_state, target, day_number, split_type, total_days):
+        """Generate possible next workouts based on split type and current day"""
+        successors = []
 
-    def _create_back_focused_workout(self):
-        """Create a back-focused workout"""
-        workout = []
+        # Determine which workout types to create based on split type and day number
+        if split_type == "full_body":
+            # Always full body workouts, possibly with different focus
+            focus_options = ["balanced", "push", "pull", "legs"]
+            focus = focus_options[day_number % len(focus_options)]
+            full_body_workout, full_body_state = self._create_full_body_workout(current_state.copy(), focus)
+            successors.append(("Full Body", full_body_workout, full_body_state))
 
-        # Add 2-3 compound back exercises
-        workout.extend(self._pick_exercises(self._filter_exercises("back", "compound"), 3, "6-12"))
+        elif split_type == "ppl":
+            # Push/Pull/Legs split - day determines workout type
+            if day_number % 3 == 0:
+                push_workout, push_state = self._create_push_workout(current_state.copy(), "heavy")
+                successors.append(("Push Day", push_workout, push_state))
+            elif day_number % 3 == 1:
+                pull_workout, pull_state = self._create_pull_workout(current_state.copy(), "heavy")
+                successors.append(("Pull Day", pull_workout, pull_state))
+            else:
+                legs_workout, legs_state = self._create_legs_workout(current_state.copy(), "heavy")
+                successors.append(("Legs Day", legs_workout, legs_state))
 
-        # Add 1-2 isolation back exercises
-        workout.extend(self._pick_exercises(self._filter_exercises("back", "isolation"), 1, "10-15"))
+        elif split_type == "upper_lower":
+            # Upper/Lower split
+            if day_number % 2 == 0:
+                upper_workout, upper_state = self._create_upper_workout(current_state.copy(),
+                                                                        "strength" if day_number == 0 else "hypertrophy")
+                successors.append(("Upper Body", upper_workout, upper_state))
+            else:
+                legs_workout, legs_state = self._create_legs_workout(current_state.copy(),
+                                                                     "heavy" if day_number == 1 else "moderate")
+                successors.append(("Lower Body", legs_workout, legs_state))
 
-        # Add 1 rear delt exercise
-        workout.extend(self._pick_exercises(
-            self._filter_exercises("shoulders", "isolation", lambda x: "Reverse" in x or "Face" in x), 1, "10-15"))
+        elif split_type == "ppl_ul":
+            # PPL + Upper/Lower (5 days)
+            if day_number < 3:  # First 3 days are PPL
+                if day_number == 0:
+                    push_workout, push_state = self._create_push_workout(current_state.copy(), "heavy")
+                    successors.append(("Push Day", push_workout, push_state))
+                elif day_number == 1:
+                    pull_workout, pull_state = self._create_pull_workout(current_state.copy(), "heavy")
+                    successors.append(("Pull Day", pull_workout, pull_state))
+                else:  # day_number == 2
+                    legs_workout, legs_state = self._create_legs_workout(current_state.copy(), "heavy")
+                    successors.append(("Legs Day", legs_workout, legs_state))
+            else:  # Last 2 days are Upper/Lower
+                if day_number == 3:
+                    upper_workout, upper_state = self._create_upper_workout(current_state.copy(), "hypertrophy")
+                    successors.append(("Upper Body", upper_workout, upper_state))
+                else:  # day_number == 4
+                    legs_workout, legs_state = self._create_legs_workout(current_state.copy(), "moderate")
+                    successors.append(("Lower Body", legs_workout, legs_state))
 
-        # Add 1-2 bicep exercises
-        workout.extend(
-            self._pick_exercises(self._filter_exercises("arms", "isolation", lambda x: "Curl" in x), 2, "10-15"))
+        elif split_type == "ppl_2x":
+            # PPL twice per week (6 days)
+            day_in_cycle = day_number % 3
+            if day_in_cycle == 0:
+                push_workout, push_state = self._create_push_workout(
+                    current_state.copy(),
+                    "heavy" if day_number < 3 else "moderate"
+                )
+                successors.append(("Push Day", push_workout, push_state))
+            elif day_in_cycle == 1:
+                pull_workout, pull_state = self._create_pull_workout(
+                    current_state.copy(),
+                    "heavy" if day_number < 3 else "moderate"
+                )
+                successors.append(("Pull Day", pull_workout, pull_state))
+            else:  # day_in_cycle == 2
+                legs_workout, legs_state = self._create_legs_workout(
+                    current_state.copy(),
+                    "heavy" if day_number < 3 else "moderate"
+                )
+                successors.append(("Legs Day", legs_workout, legs_state))
 
-        return workout
+        else:
+            # Default to a flexible approach that works for any split
+            # Determine which muscle groups need more work
+            deficient_muscles = [(muscle, target - sets) for muscle, sets in current_state.items() if sets < target]
+            deficient_muscles.sort(key=lambda x: x[1], reverse=True)  # Sort by deficit
 
-    def _create_shoulder_focused_workout(self):
-        """Create a shoulder-focused workout"""
-        workout = []
+            # Include multiple workout types to ensure options based on what's needed most
+            if not deficient_muscles or deficient_muscles[0][0] in ['chest', 'shoulders', 'arms']:
+                push_workout, push_state = self._create_push_workout(current_state.copy(), "moderate")
+                successors.append(("Push Day", push_workout, push_state))
 
-        # Add 2 compound shoulder exercises
-        workout.extend(self._pick_exercises(self._filter_exercises("shoulders", "compound"), 2, "6-12"))
+            if not deficient_muscles or deficient_muscles[0][0] in ['back', 'arms']:
+                pull_workout, pull_state = self._create_pull_workout(current_state.copy(), "moderate")
+                successors.append(("Pull Day", pull_workout, pull_state))
 
-        # Add 3 isolation shoulder exercises (lateral, front, rear)
-        workout.extend(
-            self._pick_exercises(self._filter_exercises("shoulders", "isolation", lambda x: "Lateral" in x), 1,
-                                 "12-15"))
-        workout.extend(
-            self._pick_exercises(self._filter_exercises("shoulders", "isolation", lambda x: "Front" in x), 1, "12-15"))
-        workout.extend(self._pick_exercises(
-            self._filter_exercises("shoulders", "isolation", lambda x: "Reverse" in x or "Face" in x), 1, "12-15"))
+            if not deficient_muscles or deficient_muscles[0][0] in ['legs', 'core']:
+                legs_workout, legs_state = self._create_legs_workout(current_state.copy(), "moderate")
+                successors.append(("Legs Day", legs_workout, legs_state))
 
-        # Add 1 trap exercise
-        workout.extend(
-            self._pick_exercises(self._filter_exercises("shoulders", "isolation", lambda x: "Shrug" in x), 1, "10-15"))
+            upper_workout, upper_state = self._create_upper_workout(current_state.copy(), "hypertrophy")
+            successors.append(("Upper Body", upper_workout, upper_state))
 
-        # Add 1 tricep exercise
-        workout.extend(
-            self._pick_exercises(self._filter_exercises("arms", "isolation", lambda x: "Tricep" in x), 1, "10-15"))
+            full_body_workout, full_body_state = self._create_full_body_workout(current_state.copy(), "balanced")
+            successors.append(("Full Body", full_body_workout, full_body_state))
 
-        return workout
+            # Keep only successors that make progress toward the goal
+        valid_successors = []
+        for name, workout, state in successors:
+            # Check if this workout makes progress (increases total sets)
+            current_total = sum(current_state.values())
+            new_total = sum(state.values())
+            if new_total > current_total:
+                valid_successors.append((name, workout, state))
 
-    def _create_arms_focused_workout(self):
-        """Create an arms-focused workout"""
-        workout = []
+        return valid_successors if valid_successors else successors  # Return original if none are valid
 
-        # Add 3 bicep exercises
-        workout.extend(
-            self._pick_exercises(self._filter_exercises("arms", "isolation", lambda x: "Curl" in x), 3, "8-15"))
+    def _pick_exercises(self, exercise_list, count, rep_range="8-12"):
+        """Select exercises from a list and format with sets and rep ranges
 
-        # Add 3 tricep exercises
-        workout.extend(self._pick_exercises(
-            self._filter_exercises("arms", "isolation", lambda x: "Tricep" in x or "Skull" in x or "Extension" in x), 3,
-            "8-15"))
+        Args:
+            exercise_list: List of tuples (exercise_name, exercise_info) or just exercise names
+            count: Number of exercises to select
+            rep_range: Rep range for the exercises
 
-        # Add 1 compound exercise for each
-        workout.extend(
-            self._pick_exercises(self._filter_exercises("back", "compound", lambda x: "Chin-up" in x), 1, "8-12"))
-        workout.extend(
-            self._pick_exercises(self._filter_exercises("arms", "compound", lambda x: "Close-Grip" in x or "Dips" in x),
-                                 1, "8-12"))
-
-        return workout
-
-    def _create_core_focused_workout(self):
-        """Create a core-focused workout with some cardio"""
-        workout = []
-
-        # Add variety of core exercises
-        core_exercises = self._filter_exercises("core", None)
-
-        # Add 6-8 core exercises covering different areas
-        core_subset = {}
-
-        for name, data in core_exercises.items():
-            category = data.get("category", "isolation")
-            if category not in core_subset:
-                core_subset[name] = data
-
-            if len(core_subset) >= 7:
-                break
-
-        # Add all selected core exercises with appropriate rep ranges
-        for name, data in core_subset.items():
-            rep_range = data.get("rep_range", "15-20")
-            workout.append((name, 3, rep_range))
-
-        return workout
-
-    def _filter_exercises(self, muscle_group, category, condition=None):
-        """Filter exercises by muscle group, category, and optional condition"""
-        filtered = {}
-
-        for name, data in self.exercises.items():
-            if data["muscle_group"] == muscle_group:
-                if category is None or data.get("category", "isolation") == category:
-                    if condition is None or condition(name):
-                        filtered[name] = data
-
-        return filtered
-
-    def _pick_exercises(self, exercise_dict, count, rep_range=None):
-        """Pick a specified number of exercises from the filtered list"""
+        Returns:
+            List of tuples (exercise_name, sets, rep_range)
+        """
         import random
-        result = []
 
-        # Make a copy of the exercise dictionary items
-        exercises = list(exercise_dict.items())
+        # Ensure we don't try to pick more exercises than available
+        count = min(count, len(exercise_list))
 
-        # Shuffle to randomize selection
-        random.shuffle(exercises)
+        # If the list is empty, return empty list
+        if not exercise_list:
+            return []
 
-        # Take only the number requested or all available if less
-        selected = exercises[:min(count, len(exercises))]
+        # Select random exercises
+        selected = random.sample(exercise_list, count)
 
-        # Format the selected exercises with sets and rep ranges
-        for name, data in selected:
-            # Use provided rep range or one from the exercise data
-            reps = rep_range if rep_range else data.get("rep_range", "8-12")
-            result.append((name, 3, reps))  # Default to 3 sets
+        # Format the exercises with 3 sets and the specified rep range
+        formatted_exercises = []
+        for exercise in selected:
+            if isinstance(exercise, tuple):
+                exercise_name = exercise[0]
+            else:
+                exercise_name = exercise
 
-        return result
+            formatted_exercises.append((exercise_name, 3, rep_range))
+
+        return formatted_exercises
+
+    def _fallback_workout_plan(self, days_per_week, split_type):
+        """Create a fallback workout plan when A* search fails or times out"""
+        workout_plan = []
+        current_state = {muscle: 0 for muscle in ['chest', 'back', 'legs', 'shoulders', 'arms', 'core']}
+
+        # Create workout plan based on split type
+        if split_type == "full_body":
+            # Create full body workouts with different focuses
+            focuses = ["balanced", "push", "pull", "legs"]
+            for i in range(days_per_week):
+                focus = focuses[i % len(focuses)]
+                workout, state = self._create_full_body_workout(current_state.copy(), focus)
+                workout_plan.append((f"Full Body ({focus} focus)", workout))
+                # Update state for next workout
+                current_state = state
+
+        elif split_type == "ppl":
+            # Create Push/Pull/Legs workouts
+            for i in range(days_per_week):
+                if i % 3 == 0:
+                    workout, state = self._create_push_workout(current_state.copy(), "heavy")
+                    workout_plan.append(("Push Day", workout))
+                elif i % 3 == 1:
+                    workout, state = self._create_pull_workout(current_state.copy(), "heavy")
+                    workout_plan.append(("Pull Day", workout))
+                else:
+                    workout, state = self._create_legs_workout(current_state.copy(), "heavy")
+                    workout_plan.append(("Legs Day", workout))
+                # Update state for next workout
+                current_state = state
+
+        elif split_type == "upper_lower":
+            # Create Upper/Lower split
+            for i in range(days_per_week):
+                if i % 2 == 0:
+                    workout, state = self._create_upper_workout(current_state.copy(),
+                                                                "strength" if i == 0 else "hypertrophy")
+                    workout_plan.append(("Upper Body", workout))
+                else:
+                    workout, state = self._create_legs_workout(current_state.copy(),
+                                                               "heavy" if i == 1 else "moderate")
+                    workout_plan.append(("Lower Body", workout))
+                # Update state for next workout
+                current_state = state
+
+        elif split_type == "ppl_ul":
+            # Create PPL + Upper/Lower split for 5 days
+            for i in range(days_per_week):
+                if i < 3:  # First 3 days are PPL
+                    if i == 0:
+                        workout, state = self._create_push_workout(current_state.copy(), "heavy")
+                        workout_plan.append(("Push Day", workout))
+                    elif i == 1:
+                        workout, state = self._create_pull_workout(current_state.copy(), "heavy")
+                        workout_plan.append(("Pull Day", workout))
+                    else:  # i == 2
+                        workout, state = self._create_legs_workout(current_state.copy(), "heavy")
+                        workout_plan.append(("Legs Day", workout))
+                else:  # Last 2 days are Upper/Lower
+                    if i == 3:
+                        workout, state = self._create_upper_workout(current_state.copy(), "hypertrophy")
+                        workout_plan.append(("Upper Body", workout))
+                    else:  # i == 4
+                        workout, state = self._create_legs_workout(current_state.copy(), "moderate")
+                        workout_plan.append(("Lower Body", workout))
+                # Update state for next workout
+                current_state = state
+
+        elif split_type == "ppl_2x":
+            # Create PPL twice (6 days)
+            for i in range(days_per_week):
+                day_in_cycle = i % 3
+                if day_in_cycle == 0:
+                    workout, state = self._create_push_workout(
+                        current_state.copy(),
+                        "heavy" if i < 3 else "moderate"
+                    )
+                    workout_plan.append(("Push Day", workout))
+                elif day_in_cycle == 1:
+                    workout, state = self._create_pull_workout(
+                        current_state.copy(),
+                        "heavy" if i < 3 else "moderate"
+                    )
+                    workout_plan.append(("Pull Day", workout))
+                else:  # day_in_cycle == 2
+                    workout, state = self._create_legs_workout(
+                        current_state.copy(),
+                        "heavy" if i < 3 else "moderate"
+                    )
+                    workout_plan.append(("Legs Day", workout))
+                # Update state for next workout
+                current_state = state
+        else:
+            # Default to balanced approach
+            for i in range(days_per_week):
+                if i % 3 == 0:
+                    workout, state = self._create_full_body_workout(current_state.copy(), "balanced")
+                    workout_plan.append(("Full Body", workout))
+                elif i % 3 == 1:
+                    workout, state = self._create_upper_workout(current_state.copy(), "balanced")
+                    workout_plan.append(("Upper Body", workout))
+                else:
+                    workout, state = self._create_legs_workout(current_state.copy(), "moderate")
+                    workout_plan.append(("Lower Body", workout))
+                # Update state for next workout
+                current_state = state
+
+        return workout_plan
+
+    def _update_state(self, state, muscle_group, sets):
+        """Update the state with the number of sets for a muscle group"""
+        if muscle_group in state:
+            state[muscle_group] = state[muscle_group] + sets
+        else:
+            state[muscle_group] = sets
 
 
 def _initialize_expanded_food_database(self):
@@ -1184,3 +1568,4 @@ def _initialize_expanded_exercise_database(self):
         "Pallof Press": {"muscle_group": "core", "difficulty": "moderate", "rep_range": "12-15",
                          "category": "anti-rotation"}
     }
+

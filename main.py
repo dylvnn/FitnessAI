@@ -215,7 +215,7 @@ class FitAIApp(QMainWindow):
         return tab
 
     def create_settings_tab(self):
-        """Create a settings tab for customizing recommendations"""
+        """Create a simplified settings tab with automatic split selection"""
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
@@ -223,21 +223,20 @@ class FitAIApp(QMainWindow):
         workout_settings = QGroupBox("Workout Settings")
         workout_layout = QFormLayout()
 
-        # Number of workout days
+        # Number of workout days (which will determine the split)
         self.workout_days = QComboBox()
-        self.workout_days.addItems(["3 days/week", "4 days/week", "5 days/week", "6 days/week"])
-        self.workout_days.setCurrentIndex(3)  # Default to 6 days
-        workout_layout.addRow("Training Frequency:", self.workout_days)
+        self.workout_days.addItems(["2 days/week", "3 days/week", "4 days/week", "5 days/week", "6 days/week"])
+        self.workout_days.setCurrentIndex(2)  # Default to 4 days
 
-        # Workout style
-        self.workout_style = QComboBox()
-        self.workout_style.addItems([
-            "Push/Pull/Legs (PPL)",
-            "Upper/Lower Split",
-            "Full Body",
-            "Body Part Split"
-        ])
-        workout_layout.addRow("Preferred Split:", self.workout_style)
+        # Add a label to show the suggested split
+        self.split_description = QLabel("Recommended Split: Upper/Lower Split")
+        self.split_description.setStyleSheet("color: #666; font-style: italic;")
+
+        # Connect the workout days dropdown to update the split description
+        self.workout_days.currentIndexChanged.connect(self.update_split_description)
+
+        workout_layout.addRow("Training Frequency:", self.workout_days)
+        workout_layout.addRow("", self.split_description)
 
         # Experience level
         self.experience_level = QComboBox()
@@ -281,7 +280,50 @@ class FitAIApp(QMainWindow):
         meal_settings.setLayout(meal_layout)
         layout.addWidget(meal_settings)
 
+        # Initialize the split description
+        self.update_split_description()
+
         return tab
+
+    def update_split_description(self):
+        """Update the workout split description based on number of days selected"""
+        days = int(self.workout_days.currentText().split()[0])
+
+        if days == 2:
+            split = "Full Body Split (2x per week)"
+            description = "Each workout targets the entire body with compound exercises."
+        elif days == 3:
+            split = "Push/Pull/Legs Split"
+            description = "One day each for push muscles, pull muscles, and legs."
+        elif days == 4:
+            split = "Upper/Lower Split (2x per week)"
+            description = "Alternating upper and lower body workouts."
+        elif days == 5:
+            split = "Push/Pull/Legs/Upper/Lower Split"
+            description = "PPL with additional upper and lower day."
+        elif days == 6:
+            split = "Push/Pull/Legs Split (2x per week)"
+            description = "Full PPL rotation twice per week."
+        else:
+            split = "Custom Split"
+            description = "Customized based on your goals."
+
+        self.split_description.setText(f"Recommended Split: {split}\n{description}")
+
+    def get_recommended_split_type(self, days):
+        """Determine the recommended split type based on number of days"""
+        if days == 2:
+            return "full_body"
+        elif days == 3:
+            return "ppl"
+        elif days == 4:
+            return "upper_lower"
+        elif days == 5:
+            return "ppl_ul"
+        elif days == 6:
+            return "ppl_2x"
+        else:
+            return "full_body"
 
     def generate_recommendations(self):
         """Generate meal and workout recommendations based on user profile"""
@@ -297,8 +339,15 @@ class FitAIApp(QMainWindow):
             workout_days = int(self.workout_days.currentText().split()[0])
             meals_per_day = int(self.meals_per_day.currentText().split()[0])
 
+            # Get the recommended split type
+            split_type = self.get_recommended_split_type(workout_days)
+
             # Generate recommendations
             meal_plan = meal_planner.generate_meal_plan(meals_per_day=meals_per_day)
+
+            # Pass the split_type as a parameter to the workout planner
+            # Note: The WorkoutPlanGenerator class would need to be modified to use this parameter
+            # For this example, we'll continue using the existing method
             workout_plan = workout_planner.generate_workout_plan(days_per_week=workout_days)
 
             # Update summary
@@ -315,6 +364,9 @@ class FitAIApp(QMainWindow):
                 calorie_target = int(tdee)
                 goal_text = "Maintenance"
 
+            # Get the split name for display
+            split_name = self.split_description.text().split(":", 1)[1].split("\n")[0].strip()
+
             summary = (f"<b>Name:</b> {self.name_input.text()}<br>"
                        f"<b>Height:</b> {user.height_ft}' {user.height_in}\"<br>"
                        f"<b>Weight:</b> {user.weight_lbs} lbs<br>"
@@ -322,7 +374,7 @@ class FitAIApp(QMainWindow):
                        f"<b>Basal Metabolic Rate (BMR):</b> {bmr:.0f} calories<br>"
                        f"<b>Total Daily Energy Expenditure (TDEE):</b> {tdee:.0f} calories<br>"
                        f"<b>Daily Calorie Target:</b> {calorie_target} calories<br>"
-                       f"<b>Workout Plan:</b> {workout_days} days per week<br>"
+                       f"<b>Workout Plan:</b> {workout_days} days per week ({split_name})<br>"
                        f"<b>Meal Plan:</b> {meals_per_day} meals per day")
 
             self.summary_text.setText(summary)
@@ -348,11 +400,18 @@ class FitAIApp(QMainWindow):
             for i, (day_name, workout) in enumerate(workout_plan):
                 workout_text += f"<h3>Day {i + 1}: {day_name}</h3>"
                 workout_text += "<ul>"
-                for exercise, sets, rep_range in workout:
-                    muscle = self.kb.exercises[exercise]['muscle_group']
-                    difficulty = self.kb.exercises[exercise]['difficulty']
-                    category = self.kb.exercises[exercise].get('category', 'compound')
-                    workout_text += (f"<li><b>{exercise}</b> - "
+                for exercise in workout:
+                    if isinstance(exercise, tuple) and len(exercise) == 3:
+                        exercise_name, sets, rep_range = exercise
+                    else:
+                        exercise_name = exercise
+                        sets = 3  # Default sets
+                        rep_range = "8-12"  # Default rep range
+
+                    muscle = self.kb.exercises[exercise_name]['muscle_group']
+                    difficulty = self.kb.exercises[exercise_name]['difficulty']
+                    category = self.kb.exercises[exercise_name].get('category', 'compound')
+                    workout_text += (f"<li><b>{exercise_name}</b> - "
                                      f"{sets} sets × {rep_range} reps "
                                      f"({muscle}, {difficulty} difficulty, {category})</li>")
                 workout_text += "</ul>"
