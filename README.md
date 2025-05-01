@@ -1,6 +1,6 @@
 # FitAI
 
-**An intelligent fitness recommendation system using A* search algorithm to generate personalized workout plans.**
+**An intelligent fitness recommendation system using A* search algorithm to generate personalized workout plans.***
 
 ## Features
 
