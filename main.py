@@ -169,7 +169,7 @@ class FitAIApp(QMainWindow):
         return tab
 
     def create_recommendations_tab(self):
-        """Create the recommendations display tab with enhanced layout"""
+        """Create the recommendations display tab"""
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
@@ -346,8 +346,6 @@ class FitAIApp(QMainWindow):
             meal_plan = meal_planner.generate_meal_plan(meals_per_day=meals_per_day)
 
             # Pass the split_type as a parameter to the workout planner
-            # Note: The WorkoutPlanGenerator class would need to be modified to use this parameter
-            # For this example, we'll continue using the existing method
             workout_plan = workout_planner.generate_workout_plan(days_per_week=workout_days)
 
             # Update summary

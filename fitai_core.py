@@ -47,8 +47,8 @@ class UserProfile:
 class KnowledgeBase:
     def __init__(self):
         # Initialize with food database and exercise database
-        self.foods = {}  # Will populate with nutritional data
-        self.exercises = {}  # Will populate with exercise data
+        self.foods = {}  # Populate with nutritional data
+        self.exercises = {}  # Populate with exercise data
 
 
 class MealPlanCSP:
@@ -391,7 +391,6 @@ class MealPlanCSP:
                 current_fat += nutrition['fat']
 
         elif "Snack" in meal_type:
-            # Snacks should be simpler - just 2-3 items
 
             # Add 1 protein
             if preferred_proteins and len(selected_foods) < 3:
@@ -1186,16 +1185,7 @@ class WorkoutPlanGenerator:
         return valid_successors if valid_successors else successors  # Return original if none are valid
 
     def _pick_exercises(self, exercise_list, count, rep_range="8-12"):
-        """Select exercises from a list and format with sets and rep ranges
-
-        Args:
-            exercise_list: List of tuples (exercise_name, exercise_info) or just exercise names
-            count: Number of exercises to select
-            rep_range: Rep range for the exercises
-
-        Returns:
-            List of tuples (exercise_name, sets, rep_range)
-        """
+        """Select exercises from a list and format with sets and rep ranges"""
         import random
 
         # Ensure we don't try to pick more exercises than available
