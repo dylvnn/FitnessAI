@@ -35,7 +35,7 @@ python main.py
 
 --------------------------------------------------------------------------------
 
-##Quick Start
+## Quick Start
 
 1. Fill in your personal information in the "User Profile" tab  
 2. Select your fitness goals and any dietary restrictions  
