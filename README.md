@@ -68,26 +68,26 @@ The core of FitAI is an A* search algorithm that generates optimized workout pla
 
 FitAI includes a benchmarking tool that evaluates and compares its A* algorithm against simpler alternatives like template-based (StrongFast-like) and rule-based (Ank-style) generators.
 
-Purpose
+##Purpose
 
 To assess how efficient the generated workout plans are.
 
-Metrics Evaluated
+##Metrics Evaluated
 
 - Execution Time: How fast a plan is generated  
 
-Usage
+##Usage
 
-To run the evaluation:
+##To run the evaluation:
 
 python algorithm_comparison.py
 
-This will:
+##This will:
 - Run each generator across 3–6 days/week configurations
 - Print and optionally plot a summary of performance
 - Output a comparison image: algorithm_comparison.png
 
-Result
+##Result
 
 FitAI consistently generates higher-quality plans while maintaining excellent speed, making it the preferred solution for intelligent workout programming.
 
