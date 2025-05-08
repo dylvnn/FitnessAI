@@ -19,15 +19,15 @@ An intelligent fitness recommendation system using A* search algorithm to genera
 ## Clone the repository
 git clone https://github.com/dylvnn/FitnessAI.git
 
-# Navigate to the project directory
+## Navigate to the project directory
 cd FitnessAI
 
-# Install required packages
+## Install required packages
 pip install PyQt5
 
 --------------------------------------------------------------------------------
 
-Usage
+##Usage
 
 Run the application:
 
@@ -35,7 +35,7 @@ python main.py
 
 --------------------------------------------------------------------------------
 
-Quick Start
+##Quick Start
 
 1. Fill in your personal information in the "User Profile" tab  
 2. Select your fitness goals and any dietary restrictions  
