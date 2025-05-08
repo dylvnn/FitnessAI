@@ -4,7 +4,7 @@ An intelligent fitness recommendation system using A* search algorithm to genera
 
 --------------------------------------------------------------------------------
 
-Features
+# Features
 
 - Intelligent Workout Planning: Uses A* search algorithm to optimize training plans  
 - Automatic Split Selection: Recommends the optimal training split based on available days  
@@ -14,7 +14,7 @@ Features
 
 --------------------------------------------------------------------------------
 
-Installation
+# Installation
 
 # Clone the repository
 git clone https://github.com/dylvnn/FitnessAI.git
@@ -52,7 +52,7 @@ The system automatically selects the optimal training split based on your freque
 
 --------------------------------------------------------------------------------
 
-How It Works
+# How It Works
 
 The core of FitAI is an A* search algorithm that generates optimized workout plans:
 
@@ -64,7 +64,7 @@ The core of FitAI is an A* search algorithm that generates optimized workout pla
 
 --------------------------------------------------------------------------------
 
-Algorithm Evaluation (algorithm_comparison.py)
+# Algorithm Evaluation (algorithm_comparison.py)
 
 FitAI includes a benchmarking tool that evaluates and compares its A* algorithm against simpler alternatives like template-based (StrongFast-like) and rule-based (Ank-style) generators.
 
@@ -93,7 +93,7 @@ FitAI consistently generates higher-quality plans while maintaining excellent sp
 
 --------------------------------------------------------------------------------
 
-Project Structure
+# Project Structure
 
 - main.py: PyQt5 interface and application entry point  
 - fitai_core.py: Core logic for user profiles and AI algorithms  
@@ -104,7 +104,7 @@ Project Structure
 
 --------------------------------------------------------------------------------
 
-Acknowledgements
+# Acknowledgements
 
 - Russell & Norvig's Artificial Intelligence: A Modern Approach for A* search algorithm  
 - Schoenfeld et al. for training volume recommendations in exercise science research
