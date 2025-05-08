@@ -16,7 +16,7 @@ An intelligent fitness recommendation system using A* search algorithm to genera
 
 # Installation
 
-# Clone the repository
+## Clone the repository
 git clone https://github.com/dylvnn/FitnessAI.git
 
 # Navigate to the project directory
