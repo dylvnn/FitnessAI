@@ -82,7 +82,7 @@ To assess how efficient the generated workout plans are.
 
 python algorithm_comparison.py
 
-##This will:
+## This will:
 - Run each generator across 3–6 days/week configurations
 - Print and optionally plot a summary of performance
 - Output a comparison image: algorithm_comparison.png
